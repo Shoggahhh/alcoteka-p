@@ -77,7 +77,6 @@ class AlcotekaSpider(scrapy.Spider):
         filter_labels = results.get("filter_labels") or []
         price_details = results.get("price_details") or []
 
-
         # create title (name)
         name = results.get("name") or ""
         title = name
@@ -102,18 +101,27 @@ class AlcotekaSpider(scrapy.Spider):
         if extra_parts:
             title = f"{name}, {', '.join(extra_parts)}"
 
+        # check brand
+        brand_name = None
+        for block in results.get("description_blocks", []):
+            if block.get("code") == "brend":
+                val = block.get("values") or []
+                if val:
+                    brand_name = val[0].get("name")
+                break
+
         yield {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).timestamp(),
+            "timestamp": int(datetime.datetime.now(datetime.timezone.utc).timestamp()),
             "RPC": results.get("uuid"),
             "url": urljoin(
                 "https://alkoteka.com/product/",
                 f"{results.get('category', {}).get('slug')}/{response.url.split('/product', 1)[-1]}",
             ),
             "title": title,
-            "marketing_tags": [item.get("title") for item in price_details if item.get("title")],
-            "brand": results.get("description_blocks", [])[0]
-            .get("values", [])[0]
-            .get("name"),
+            "marketing_tags": [
+                item.get("title") for item in price_details if item.get("title")
+            ],
+            "brand": brand_name,
             "section": (
                 [category.get("name"), parent.get("name")]
                 if parent
