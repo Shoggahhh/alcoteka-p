@@ -1,7 +1,7 @@
 import json
 from collections.abc import AsyncIterator
 from json import JSONDecodeError
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urlencode, urljoin
 
 import scrapy
@@ -53,7 +53,7 @@ class AlcotekaSpider(scrapy.Spider):
                 callback=self.parse_product,
             )
 
-    def parse_product(self, response: Response, **kwargs: Any) -> Any:
+    def parse_product(self, response: Response) -> Any:
         try:
             detail_data = json.loads(response.text)
         except JSONDecodeError:
@@ -72,28 +72,53 @@ class AlcotekaSpider(scrapy.Spider):
             self.logger.warning("Empty product data: %s", response.url)
             return
 
+        category = results.get("category") or {}
+        parent = category.get("parent") or {}
+        filter_labels = results.get("filter_labels") or []
+        price_details = results.get("price_details") or []
+
+
+        # create title (name)
+        name = results.get("name") or ""
+        title = name
+        extra_parts: list[str] = []
+
+        name_lower = name.lower()
+
+        for label in filter_labels:
+            if label.get("filter") == "obem":
+                volume = label.get("title")
+                if volume and volume.lower() not in name_lower:
+                    extra_parts.append(volume)
+                break
+
+        for label in filter_labels:
+            if label.get("filter") == "cvet":
+                colour = label.get("title")
+                if colour and colour.lower() not in name_lower:
+                    extra_parts.append(colour)
+                break
+
+        if extra_parts:
+            title = f"{name}, {', '.join(extra_parts)}"
 
         yield {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).timestamp(),
             "RPC": results.get("uuid"),
             "url": urljoin(
-                "https://alkoteka.com/product",
+                "https://alkoteka.com/product/",
                 f"{results.get('category', {}).get('slug')}/{response.url.split('/product', 1)[-1]}",
             ),
-            "title": {
-                results.get("name"): results.get("filter_labels", [])[0].get("title")
-                or results.get("filter_labels", [])[3].get("title")
-            },
-            "marketing_tags": [
-                item.get("title") for item in results.get("price_details", [])
-            ],
+            "title": title,
+            "marketing_tags": [item.get("title") for item in price_details if item.get("title")],
             "brand": results.get("description_blocks", [])[0]
             .get("values", [])[0]
             .get("name"),
-            "section": [
-                results.get("category").get("name"),
-                results.get("category").get("parent").get("name"),
-            ],
+            "section": (
+                [category.get("name"), parent.get("name")]
+                if parent
+                else [category.get("name")]
+            ),
             "price_data": results.get("price_details", []),
             "stock": {
                 "in_stock": results.get("quantity_total", 0) > 0,
